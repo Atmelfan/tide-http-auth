@@ -21,6 +21,11 @@ pub trait Scheme<User: Send + Sync + 'static> {
     fn header_name() -> &'static str {
         "Authorization"
     }
+
+    fn realm_name() -> Option<&'static str> {
+        None
+    }
+
     fn scheme_name() -> &'static str;
 }
 
@@ -107,7 +112,7 @@ impl<User: Send + Sync + 'static> Scheme<User> for BearerAuthScheme {
         // TODO: validate that the auth_param (sans the prefix) is a valid uuid.
         let user = state
             .get_user(BearerAuthRequest {
-                token: (&auth_param[self.prefix.len()..]).to_owned(),
+                token: auth_param[self.prefix.len()..].to_owned(),
             })
             .await?;
         Ok(user)

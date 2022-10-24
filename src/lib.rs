@@ -52,6 +52,24 @@ impl<User: Send + Sync + 'static, ImplScheme: Scheme<User>> Authentication<User,
             _user_t: PhantomData::default(),
         }
     }
+
+    fn www_authenticate_header() -> String {
+        if let Some(realm) = ImplScheme::realm_name() {
+            format!("{} realm = {}", ImplScheme::scheme_name(), realm)
+        } else {
+            ImplScheme::scheme_name().to_string()
+        }
+    }
+
+    async fn next<S: Clone + Send + Sync + 'static>(&self, req: Request<S>, next: Next<'_, S>) -> tide::Result {
+        let mut response = next.run(req).await;
+        // Insert a header on our auth method
+        if response.status() == http_types::StatusCode::Unauthorized {
+            response.insert_header("WWW-Authenticate", Self::www_authenticate_header());
+
+        }
+        Ok(response)
+    }
 }
 
 #[async_trait::async_trait]
@@ -66,13 +84,13 @@ where
         let auth_header = req.header(ImplScheme::header_name());
         if auth_header.is_none() {
             info!("no auth header, proceeding");
-            return Ok(next.run(req).await);
+            return self.next(req, next).await;
         }
         let value: Vec<_> = auth_header.unwrap().into_iter().collect();
 
         if value.is_empty() {
             info!("empty auth header, proceeding");
-            return Ok(next.run(req).await);
+            return self.next(req, next).await;
         }
 
         if value.len() > 1 && ImplScheme::should_401_on_multiple_values() {
@@ -95,10 +113,10 @@ where
             } else if ImplScheme::should_401_on_bad_auth() {
                 error!("Authorization header sent but no user returned, bailing");
                 let mut response = Response::new(StatusCode::Unauthorized);
-                response.insert_header("WWW-Authenticate", ImplScheme::scheme_name());
+                response.insert_header("WWW-Authenticate", Self::www_authenticate_header());
                 return Ok(response);
             }
         }
-        Ok(next.run(req).await)
+        return self.next(req, next).await;
     }
 }
